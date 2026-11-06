@@ -1,0 +1,12 @@
+.venv/
+data/
+ckpts/*
+!ckpts/CKPTS.md
+upstream/*
+!upstream/INVENTORY.md
+out/
+out_real/
+out_second/
+__pycache__/
+*.pyc
+*.log
