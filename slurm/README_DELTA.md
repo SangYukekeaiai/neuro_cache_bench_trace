@@ -13,21 +13,35 @@ benchmark table in this order:
 | 5 | C01 |
 
 Each task invokes `capture_traces.py` with 500 samples, seed `0`, and CUDA,
-writing under `$WCACHE/input_trace/$SUITE/$B`. The benchmark-specific `$B`
+writing under `$WCACHE/examples/input_trace/$SUITE/$B`. The benchmark-specific `$B`
 component prevents array tasks from colliding when two models have the same
 architecture/timestep/sample-count directory. The six benchmark loaders are
 implemented in `benchmarks.py` and selected from the registry. The C01
-DVS128-Gesture capture remains blocked until its event files are downloaded on
-the target environment; CIFAR10-DVS is downloadable through SpikingJelly, but
-the parent directory `data/cifar10dvs/test_dataset` must be created first
-because its downloader calls `os.mkdir(download_root)` and `benchmarks.py` does
-not currently create that parent.
+event datasets and frame conversions are available under `data/`, with the
+event-data directories symlinked to `/work/nvme/bebv/yyu9/neuro_cache_bench_trace/data/`.
 
-Before submitting on Delta, verify the `WCACHE`, `SUITE`, and `PYTHON_BIN`
-values and the TODO-marked `PROJECT_ROOT` at the top of the script. In
-particular, the wcache checkout is under `/u/yyu9` on Delta. Also verify the
-account `bebv-delta-gpu` and partition `gpuA40x4` before submitting; these are
-site-specific scheduler settings.
+For n=500, A07 and C01 require `--chunk 25` to fit; use `--mem=160g` for A07.
+Measured peak host memory from `sacct` (batch-step `MaxRSS`):
+
+| Benchmark | Completed job | MaxRSS | Approx. GiB | Requested memory | Output size |
+|---|---:|---:|---:|---:|---:|
+| A07 | 23638908 | 75765692K | 72.3 | 160G | 20G |
+| C01 | 23639155 | 15142132K | 14.4 | 64G | 6G |
+
+The 20G/6G values are disk usage, not peak memory. MaxRSS measures host RAM,
+not GPU memory. The unchunked A07 capture exceeded 64G host RAM; unchunked
+C01 exhausted CUDA memory. For future interactive captures, export `CHUNK=25`
+when submitting `slurm/capture_interactive.sbatch`, and override A07's memory
+request with `sbatch --mem=160g`. `capture_delta.sbatch` does not set chunking;
+its default 64G, unchunked configuration is insufficient for A07/C01 at n=500.
+
+The script uses `PROJECT_ROOT=/u/yyu9/projects/neuro_cache_wcache/neuro_cache_bench_trace`
+and `WCACHE=/u/yyu9/projects/neuro_cache_wcache`, with `SUITE=delta` and
+`PYTHON_BIN=$PROJECT_ROOT/.venv/bin/python`. The account `bebv-delta-gpu`
+and partition `gpuA40x4` are verified for this machine. Python runs through
+`/u/yyu9/miniconda3/bin/conda run --no-capture-output -n base`; both
+`OPENBLAS_NUM_THREADS` and `OMP_NUM_THREADS` use the allocated CPU count
+(16 by default).
 
 Submit the array from the side-project checkout with:
 
@@ -36,16 +50,15 @@ sbatch --array=0-5 slurm/capture_delta.sbatch
 ```
 
 The resulting `*_n500` capture directories are ignored by the wcache checkout's
-`.gitignore` rule `input_trace/delta/` (currently line 48). Proof from the
+`.gitignore` rule `examples/input_trace/delta/` (line 52). Proof from the
 wcache checkout:
 
 ```text
-$ git check-ignore -v input_trace/delta/A02/x_T4_n500/layer_01.npy
-.gitignore:48:input_trace/delta/ input_trace/delta/A02/x_T4_n500/layer_01.npy
+$ git check-ignore -v examples/input_trace/delta/A02/x_T4_n500/layer_01.npy
+.gitignore:52:examples/input_trace/delta/ examples/input_trace/delta/A02/x_T4_n500/layer_01.npy
 ```
 
-This script cannot be executed on the current machine because it is not a
-Delta Slurm environment. The local syntax check is:
+Check the script's shell syntax before submission:
 
 ```bash
 bash -n slurm/capture_delta.sbatch

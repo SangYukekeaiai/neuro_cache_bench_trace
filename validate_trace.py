@@ -11,7 +11,7 @@ import sys
 
 import numpy as np
 
-DEFAULT_WCACHE_SRC = "/home/ya867177/neuro_cache-wcache/src"
+DEFAULT_WCACHE_SRC = str(Path(__file__).resolve().parent.parent / "src")
 WCACHE_SRC = os.environ.get("WCACHE_SRC") or DEFAULT_WCACHE_SRC
 if WCACHE_SRC not in sys.path:
     sys.path.insert(0, WCACHE_SRC)

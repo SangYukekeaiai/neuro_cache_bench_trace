@@ -21,6 +21,20 @@ from benchmarks import (
     REGISTRY,
     SpikingFC,
     SpikingGEMM,
+    _reset_spiking_state,
+)
+
+CHUNK_NUMERICAL_NOTE = (
+    "Chunked capture may differ from single-pass capture due to floating-point "
+    "nondeterminism from batch-size-dependent reduction order."
+)
+C01_CHUNK_CHECK_NOTE = (
+    " Reference checks at n=5, chunk=2 only: CIFAR10-DVS worst-layer mismatch "
+    "was 2.9296875e-4 of elements (approximately 2.9e-4); layers 1-2 were exact "
+    "and firing rates were identical to 4 digits. DVS128-Gesture was bit-identical "
+    "at n=5, chunk=2. These measurements do not bound n=500 differences: an "
+    "unchunked n=500 reference is unavailable because of OOM. The n=500 validator "
+    "pass is structural, not a numerical-equivalence check."
 )
 
 
@@ -76,12 +90,15 @@ def _assert_binary(value: torch.Tensor, module_name: str) -> None:
 
 
 def _split_timestep_input(
-    value: torch.Tensor, timestep_count: int, sample_count: int, module_name: str
+    value: torch.Tensor, timestep_count: int, sample_count: int, module_name: str,
+    explicit_steps: bool = False,
 ) -> list[torch.Tensor]:
     """Turn either [T*N,...], [T,N,...], or one [N,...] call into steps."""
 
     if value.ndim == 0:
         raise AssertionError(f"target layer {module_name} received scalar input")
+    if explicit_steps and value.shape[:2] == (timestep_count, sample_count):
+        return list(value.unbind(0))
     if value.shape[0] == timestep_count * sample_count:
         return list(value.reshape(timestep_count, sample_count, *value.shape[1:]).unbind(0))
     if value.ndim >= 2 and value.shape[0] == timestep_count and value.shape[1] == sample_count:
@@ -106,6 +123,9 @@ def _capture(
     timestep_count: int,
     device: torch.device,
     allow_unfired: bool,
+    *,
+    compact: bool = False,
+    first_calls: list[tuple[str, nn.Module, bool]] | None = None,
 ) -> tuple[list[tuple[str, nn.Module, list[np.ndarray]]], dict[str, str]]:
     captures: list[tuple[str, nn.Module, list[np.ndarray]]] = []
     records: dict[int, tuple[str, list[np.ndarray]]] = {}
@@ -126,15 +146,26 @@ def _capture(
         ) -> None:
             nonlocal next_layer_number
             del hooked_module
+            first_call = id(target_module) not in fired_targets
             fired_targets.add(id(target_module))
             if not inputs or not isinstance(inputs[0], torch.Tensor):
                 raise AssertionError(f"target layer {declaration_name} received no tensor input")
             if declaration_name in excluded:
                 return
-            values = _split_timestep_input(
-                inputs[0].detach(), timestep_count, sample_count, declaration_name
+            value = inputs[0].detach()
+            # For singleton chunks, T*N equals T. Use the target's input rank
+            # to recognize explicit [T,N,...] before the flattened form.
+            explicit_steps = compact and (
+                (isinstance(target_module, nn.Conv2d) and value.ndim == 5)
+                or (isinstance(target_module, (nn.Linear, SpikingGEMM, SpikingFC)) and value.ndim >= 3)
             )
-            if any(not torch.all((value == 0) | (value == 1)).item() for value in values):
+            values = _split_timestep_input(
+                value, timestep_count, sample_count, declaration_name, explicit_steps
+            )
+            binary = all(torch.all((value == 0) | (value == 1)).item() for value in values)
+            if first_call and first_calls is not None:
+                first_calls.append((declaration_name, target_module, binary))
+            if not binary:
                 excluded[declaration_name] = (
                     "weight-bearing input is not exactly binary; excluded from capture"
                 )
@@ -161,7 +192,7 @@ def _capture(
                 name, arrays = record
             for value in values:
                 _assert_binary(value, name)
-                arrays.append(value.to(device="cpu").numpy().copy())
+                arrays.append(value.to(device="cpu", dtype=torch.uint8 if compact else value.dtype).numpy().copy())
 
         handles.append(module.register_forward_hook(hook))
 
@@ -190,6 +221,65 @@ def _capture(
             )
 
     return captures, excluded
+
+
+def _capture_chunked(
+    model: nn.Module,
+    dataset: Any,
+    sample_indices: list[int],
+    chunk_size: int,
+    timestep_count: int,
+    device: torch.device,
+    allow_unfired: bool,
+) -> tuple[list[tuple[str, nn.Module, list[np.ndarray]]], dict[str, str]]:
+    pieces: dict[nn.Module, list[list[np.ndarray]]] = {}
+    first_calls: list[tuple[str, nn.Module, bool]] = []
+    excluded: dict[str, str] = {}
+    for start in range(0, len(sample_indices), chunk_size):
+        _reset_spiking_state(model)
+        indices = sample_indices[start:start + chunk_size]
+        samples = _stack_samples([dataset[index] for index in indices])
+        calls: list[tuple[str, nn.Module, bool]] = []
+        captures, chunk_excluded = _capture(
+            model, samples, len(indices), timestep_count, device, allow_unfired,
+            compact=True, first_calls=calls,
+        )
+        if not start:
+            first_calls = calls
+        else:
+            if [module for _, module, _ in calls] != [module for _, module, _ in first_calls]:
+                raise AssertionError("target firing order differs between sample chunks")
+            first_calls = [
+                (name, module, binary and current_binary)
+                for (name, module, binary), (_, _, current_binary) in zip(first_calls, calls)
+            ]
+        excluded.update(chunk_excluded)
+        for name, module, _ in calls:
+            if name in excluded:
+                pieces.pop(module, None)
+        for _, module, values in captures:
+            name = next(name for name, target, _ in calls if target is module)
+            if name not in excluded:
+                if isinstance(module, (nn.Linear, SpikingGEMM, SpikingFC)):
+                    values = [value[:, None, :] if value.ndim == 2 else value for value in values]
+                pieces.setdefault(module, []).append(values)
+        print(f"captured chunk samples {start + 1}-{start + len(indices)}/{len(sample_indices)}")
+
+    merged = []
+    layer_number = 0
+    for name, module, first_binary in first_calls:
+        # A full-batch hook allocates a layer number only if its first call is
+        # binary across every sample; a later exclusion still consumes it.
+        if first_binary:
+            layer_number += 1
+        if name in excluded:
+            continue
+        values = [
+            np.concatenate([chunk[timestep] for chunk in pieces[module]], axis=0)
+            for timestep in range(timestep_count)
+        ]
+        merged.append((f"layer_{layer_number:02d}_{_sanitize_module_name(name)}", module, values))
+    return merged, excluded
 
 
 def _stack_layer(
@@ -254,6 +344,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, required=True, help="numpy subset-selection seed")
     parser.add_argument("--out", type=Path, required=True, help="parent output directory")
     parser.add_argument("--device", choices=("cuda", "cpu"), required=True)
+    parser.add_argument("--chunk", type=int, help="samples per forward pass; default captures all samples at once")
     parser.add_argument(
         "--allow-unfired",
         action="store_true",
@@ -262,6 +353,8 @@ def _parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.n <= 0:
         parser.error("--n must be positive")
+    if args.chunk is not None and args.chunk <= 0:
+        parser.error("--chunk must be positive")
     return args
 
 
@@ -288,17 +381,19 @@ def _capture_workload(
 
     rng = np.random.default_rng(args.seed)
     sample_indices = sorted(int(index) for index in rng.choice(len(selected_dataset), args.n, replace=False))
-    samples = _stack_samples([selected_dataset[index] for index in sample_indices])
     model = model.to(device=device).eval()
 
-    captures, excluded_layers = _capture(
-        model,
-        samples,
-        len(sample_indices),
-        timestep_count,
-        device,
-        allow_unfired=args.allow_unfired,
-    )
+    if args.chunk is None:
+        samples = _stack_samples([selected_dataset[index] for index in sample_indices])
+        captures, excluded_layers = _capture(
+            model, samples, len(sample_indices), timestep_count, device,
+            allow_unfired=args.allow_unfired,
+        )
+    else:
+        captures, excluded_layers = _capture_chunked(
+            model, selected_dataset, sample_indices, args.chunk, timestep_count,
+            device, allow_unfired=args.allow_unfired,
+        )
     output_dir = args.out / f"{arch_name}_T{timestep_count}_n{args.n}"
     output_dir.mkdir(parents=True, exist_ok=True)
     actual_device = next(model.parameters()).device
@@ -343,6 +438,11 @@ def _capture_workload(
         },
         "timestep": timestep_count,
     }
+    if args.chunk is not None:
+        meta["chunk_size"] = args.chunk
+        meta["numerical_note"] = CHUNK_NUMERICAL_NOTE
+        if args.benchmark == "C01":
+            meta["numerical_note"] += C01_CHUNK_CHECK_NOTE
     if gemm_meta:
         meta["gemm"] = gemm_meta
     if excluded_layers:

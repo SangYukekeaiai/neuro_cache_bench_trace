@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# TODO(Delta): verify the account before submitting at this site.
 #SBATCH --account=bebv-delta-gpu
-# TODO(Delta): verify the partition before submitting at this site.
 #SBATCH --partition=gpuA40x4
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=16
@@ -12,23 +10,21 @@
 
 set -euo pipefail
 
-# TODO(Delta): verify the side-project checkout path before submitting.
-PROJECT_ROOT="/u/yyu9/neuro_cache_bench_trace"
-# TODO(Delta): verify this path before submitting; Delta's wcache checkout is
-# under /u/yyu9, unlike the checkout on the development machine.
-WCACHE="/u/yyu9/neuro_cache-wcache"
-# TODO(Delta): verify the suite directory name before submitting.
+PROJECT_ROOT="/u/yyu9/projects/neuro_cache_wcache/neuro_cache_bench_trace"
+WCACHE="/u/yyu9/projects/neuro_cache_wcache"
 SUITE="delta"
-# TODO(Delta): verify the side-project venv path before submitting.
-PYTHON_BIN="/u/yyu9/neuro_cache_bench_trace/.venv/bin/python"
+PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
+
+export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-16}"
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-16}"
 
 BENCHMARKS=(A02 A04 A07 A08 B09 C01)
 B="${BENCHMARKS[$SLURM_ARRAY_TASK_ID]}"
 cd "$PROJECT_ROOT"
 
-"$PYTHON_BIN" capture_traces.py \
+/u/yyu9/miniconda3/bin/conda run --no-capture-output -n base "$PYTHON_BIN" capture_traces.py \
   --benchmark "$B" \
   --n 500 \
   --seed 0 \
-  --out "$WCACHE/input_trace/$SUITE/$B" \
+  --out "$WCACHE/examples/input_trace/$SUITE/$B" \
   --device cuda

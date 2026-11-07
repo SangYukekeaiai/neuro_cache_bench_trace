@@ -202,6 +202,25 @@ def _cifar10(split: str, split_name: str) -> PreparedDataset:
     return PreparedDataset(base, convert, split_name, labels)
 
 
+def _cifar100(
+    split: str,
+    split_name: str,
+    mean: tuple[float, float, float],
+    std: tuple[float, float, float],
+) -> PreparedDataset:
+    from datasets import load_dataset
+
+    base = load_dataset("cifar100", cache_dir=str(DATA_ROOT / "hf_cifar"))["train" if split == "train" else "test"]
+
+    def convert(item: Mapping[str, Any]) -> torch.Tensor:
+        image = torch.from_numpy(np.asarray(item["img"], dtype=np.uint8).copy())
+        image = image.permute(2, 0, 1).to(torch.float32).div_(255.0)
+        return (image - torch.tensor(mean)[:, None, None]) / torch.tensor(std)[:, None, None]
+
+    labels = torch.as_tensor(base["fine_label"], dtype=torch.long)
+    return PreparedDataset(base, convert, split_name, labels)
+
+
 def _load_step_checkpoint(path: pathlib.Path) -> dict[str, Any]:
     # The checkpoint's args field contains argparse.Namespace; no executable
     # globals are needed to recover the state dict.
@@ -220,7 +239,7 @@ def _load_a02() -> tuple[nn.Module, Dataset, int, str, str]:
         img_size=32,
         patch_size=4,
         in_channels=3,
-        num_classes=10,
+        num_classes=100,
         embed_dim=384,
         num_heads=12,
         mlp_ratio=4,
@@ -232,8 +251,13 @@ def _load_a02() -> tuple[nn.Module, Dataset, int, str, str]:
     )
     model.load_state_dict(checkpoint["state_dict"], strict=True)
     model.eval()
-    dataset = SplitDataset(_cifar10("test", "cifar10/test"), _cifar10("train", "cifar10/train"))
-    return model, dataset, 4, "spikformer_4_384", "cifar10"
+    mean = (0.4914, 0.4822, 0.4465)
+    std = (0.2470, 0.2435, 0.2616)
+    dataset = SplitDataset(
+        _cifar100("test", "cifar100/test", mean, std),
+        _cifar100("train", "cifar100/train", mean, std),
+    )
+    return model, dataset, 4, "spikformer_4_384", "cifar100"
 
 
 def _load_a04() -> tuple[nn.Module, Dataset, int, str, str]:
@@ -247,7 +271,7 @@ def _load_a04() -> tuple[nn.Module, Dataset, int, str, str]:
         img_size=32,
         patch_size=4,
         in_channels=3,
-        num_classes=10,
+        num_classes=100,
         embed_dim=512,
         num_heads=8,
         mlp_ratio=4,
@@ -259,8 +283,13 @@ def _load_a04() -> tuple[nn.Module, Dataset, int, str, str]:
     )
     model.load_state_dict(checkpoint["state_dict"], strict=True)
     model.eval()
-    dataset = SplitDataset(_cifar10("test", "cifar10/test"), _cifar10("train", "cifar10/train"))
-    return model, dataset, 4, "sdt_2_512", "cifar10"
+    mean = (0.5071, 0.4867, 0.4408)
+    std = (0.2675, 0.2565, 0.2761)
+    dataset = SplitDataset(
+        _cifar100("test", "cifar100/test", mean, std),
+        _cifar100("train", "cifar100/train", mean, std),
+    )
+    return model, dataset, 4, "sdt_2_512", "cifar100"
 
 
 class _LoASVGGWrapper(nn.Module):

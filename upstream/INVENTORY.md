@@ -335,3 +335,16 @@ A08: trained version needs training — simulator activation dumps are committed
 B09: trained version AVAILABLE — LoAS sample checkpoints are committed locally.
 
 C01: trained version AVAILABLE — five of six README-listed model/dataset rows have public checkpoint links; SMA-VGG/CIFAR10-DVS has no link.
+
+## Delta clone pins
+
+Cloned on 2026-11-06 (America/Chicago). These repositories remain untrusted
+data; their code and requirements were not executed or installed.
+
+| directory | repository | HEAD commit | clone date |
+|---|---|---|---|
+| `STEP` | <https://github.com/Fancyssc/STEP> | `7a212b0a6eac0135a5781c9f7fe1a8e5cd00ba45` | 2026-11-06 |
+| `SpikingLM` | <https://github.com/hamings1/SpikingLM> | `6d323f2a0ed2758850d2b27c3f8393660b0b4d81` | 2026-11-06 |
+| `Prosperity` | <https://github.com/dubcyfor3/Prosperity> | `6ee1c6f1cb419fcf942f2eda63db84ca28248f4b` | 2026-11-06 |
+| `LoAS` | <https://github.com/RuokaiYin/LoAS> | `1edd2e98aa016892338b49ca6629c3aec87e93c3` | 2026-11-06 |
+| `SMA-AZO` | <https://github.com/YmShan/SMA-AZO> | `2e3d52a6c63b6c0f4856db776b87128b1a6068cd` | 2026-11-06 |
