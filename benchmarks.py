@@ -187,37 +187,26 @@ def _ensure_python312_compat() -> None:
 
 
 def _cifar10(split: str, split_name: str) -> PreparedDataset:
-    from datasets import load_dataset
-
-    mean = (0.4914, 0.4822, 0.4465)
-    std = (0.2470, 0.2435, 0.2616)
-    base = load_dataset("cifar10", cache_dir=str(DATA_ROOT / "hf_cifar"))["train" if split == "train" else "test"]
-
-    def convert(item: Mapping[str, Any]) -> torch.Tensor:
-        image = torch.from_numpy(np.asarray(item["img"], dtype=np.uint8).copy())
-        image = image.permute(2, 0, 1).to(torch.float32).div_(255.0)
-        return (image - torch.tensor(mean)[:, None, None]) / torch.tensor(std)[:, None, None]
-
-    labels = torch.as_tensor(base["label"], dtype=torch.long)
-    return PreparedDataset(base, convert, split_name, labels)
+    return _cifar("cifar10", "label", (0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616), split, split_name)
 
 
-def _cifar100(
-    split: str,
-    split_name: str,
-    mean: tuple[float, float, float],
-    std: tuple[float, float, float],
+def _cifar100(split: str, split_name: str) -> PreparedDataset:
+    return _cifar("cifar100", "fine_label", (0.5071, 0.4865, 0.4409), (0.2673, 0.2564, 0.2762), split, split_name)
+
+
+def _cifar(
+    name: str, label_key: str, mean: tuple[float, ...], std: tuple[float, ...], split: str, split_name: str
 ) -> PreparedDataset:
     from datasets import load_dataset
 
-    base = load_dataset("cifar100", cache_dir=str(DATA_ROOT / "hf_cifar"))["train" if split == "train" else "test"]
+    base = load_dataset(name, cache_dir=str(DATA_ROOT / "hf_cifar"))["train" if split == "train" else "test"]
 
     def convert(item: Mapping[str, Any]) -> torch.Tensor:
         image = torch.from_numpy(np.asarray(item["img"], dtype=np.uint8).copy())
         image = image.permute(2, 0, 1).to(torch.float32).div_(255.0)
         return (image - torch.tensor(mean)[:, None, None]) / torch.tensor(std)[:, None, None]
 
-    labels = torch.as_tensor(base["fine_label"], dtype=torch.long)
+    labels = torch.as_tensor(base[label_key], dtype=torch.long)
     return PreparedDataset(base, convert, split_name, labels)
 
 
@@ -233,7 +222,7 @@ def _load_a02() -> tuple[nn.Module, Dataset, int, str, str]:
     sys.path.insert(0, str(UPSTREAM / "STEP" / "cls"))
     from models.static.spikformer_cifar import Spikformer
 
-    checkpoint = _load_step_checkpoint(PROJECT_ROOT / "ckpts/A02/model_best.pth.tar")
+    checkpoint = _load_step_checkpoint(PROJECT_ROOT / "ckpts/A02/cifar100/model_best.pth.tar")
     model = Spikformer(
         step=4,
         img_size=32,
@@ -251,13 +240,8 @@ def _load_a02() -> tuple[nn.Module, Dataset, int, str, str]:
     )
     model.load_state_dict(checkpoint["state_dict"], strict=True)
     model.eval()
-    mean = (0.4914, 0.4822, 0.4465)
-    std = (0.2470, 0.2435, 0.2616)
-    dataset = SplitDataset(
-        _cifar100("test", "cifar100/test", mean, std),
-        _cifar100("train", "cifar100/train", mean, std),
-    )
-    return model, dataset, 4, "spikformer_4_384", "cifar100"
+    dataset = SplitDataset(_cifar100("test", "cifar100/test"), _cifar100("train", "cifar100/train"))
+    return model, dataset, 4, "spikformer_4_384_cifar100", "cifar100"
 
 
 def _load_a04() -> tuple[nn.Module, Dataset, int, str, str]:
@@ -265,7 +249,7 @@ def _load_a04() -> tuple[nn.Module, Dataset, int, str, str]:
     sys.path.insert(0, str(UPSTREAM / "STEP" / "cls"))
     from models.static.sdt_cifar import SDTV1
 
-    checkpoint = _load_step_checkpoint(PROJECT_ROOT / "ckpts/A04/model_best.pth.tar")
+    checkpoint = _load_step_checkpoint(PROJECT_ROOT / "ckpts/A04/cifar100/model_best.pth.tar")
     model = SDTV1(
         step=4,
         img_size=32,
@@ -283,13 +267,8 @@ def _load_a04() -> tuple[nn.Module, Dataset, int, str, str]:
     )
     model.load_state_dict(checkpoint["state_dict"], strict=True)
     model.eval()
-    mean = (0.5071, 0.4867, 0.4408)
-    std = (0.2675, 0.2565, 0.2761)
-    dataset = SplitDataset(
-        _cifar100("test", "cifar100/test", mean, std),
-        _cifar100("train", "cifar100/train", mean, std),
-    )
-    return model, dataset, 4, "sdt_2_512", "cifar100"
+    dataset = SplitDataset(_cifar100("test", "cifar100/test"), _cifar100("train", "cifar100/train"))
+    return model, dataset, 4, "sdt_2_512_cifar100", "cifar100"
 
 
 class _LoASVGGWrapper(nn.Module):

@@ -111,7 +111,7 @@ default is `/home/ya867177/neuro_cache-wcache/src`; override it with
 .venv/bin/python validate_trace.py \
   /home/ya867177/neuro_cache-wcache/input_trace/loas/vgg16_T4_n5
 .venv/bin/python validate_trace.py out/synthetic_spiking_T4_n5
-.venv/bin/python validate_trace.py out_real/A02/spikformer_4_384_T4_n5
+.venv/bin/python validate_trace.py out_real/A02/spikformer_4_384_cifar100_T4_n5
 WCACHE_SRC=/path/to/neuro_cache-wcache/src \
   .venv/bin/python validate_trace.py out/synthetic_spiking_T4_n5
 ```
@@ -155,3 +155,30 @@ The command prints the accuracy or pseudo-loss values copied into
 
 The site-specific array script and submit/check instructions are in
 [slurm/README_DELTA.md](slurm/README_DELTA.md).
+
+## Prosperity workloads (T=16 / T=32)
+
+`convert_prosperity.py` turns Prosperity's committed activation dumps
+(<https://github.com/dubcyfor3/Prosperity>, `data/*.pkl`, commit `6ee1c6f`)
+into the same trace format.  It never unpickles them: tensors are read by
+walking the pickle opcodes, so neither torch nor Prosperity code runs.
+
+```bash
+git clone https://github.com/dubcyfor3/Prosperity upstream/Prosperity
+python3 -I convert_prosperity.py --data upstream/Prosperity/data --out ./out_prosperity
+```
+
+| workload | T | captured layers (GEMM) | excluded |
+|---|---:|---|---|
+| spikformer_cifar10dvs | 16 | 12 (8) | pool inputs, attention q/k/v, fused-qkv duplicates |
+| spikingbert_sst2 / qqp / mnli | 16 | 16 (16) | attention k/v, `output_layer` |
+| vgg16_cifar10 / cifar100 | 32 | 14 (2) | input image, T=1 head |
+| resnet18_cifar10 / cifar100 | 32 | 16 (0) | input image, T=1 head |
+| lenet5_mnist | 32 | 3 (2) | input image, T=1 head |
+
+Caveats: each dump is **one unrecorded sample** (`n_samples = 1`), so these
+traces compare with Prosperity's numbers, not with the n=5 checkpoint
+captures.  Layer tables are hand-transcribed from Prosperity's
+`simulator/configs.py`; ResNet18 couts come from the next layer's input
+channels because configs.py contradicts itself, and it has no shortcut
+convs.  LeNet-5's 5x5 conv is kept but wcache replay skips it.

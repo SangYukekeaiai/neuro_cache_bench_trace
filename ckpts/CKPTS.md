@@ -12,11 +12,33 @@ A02 and A04 use CIFAR-100 checkpoints. Dates use America/Chicago time.
 |---|---|---:|---|---|---|
 | `A02/model_best.pth.tar` | <https://huggingface.co/Fancysean/STEP/resolve/main/ckpt/cls/Spikformer/cifar100/model_best.pth.tar> | 112,620,152 | `e4449e1a7a3271a52e2be4d3dbb90a3baac13e1cf6394c2e9ed7f0ef68d66dbf` | Zip archive data; not HTML | 2026-11-06 |
 
+The loader now reads the CIFAR-100 checkpoint below (Atlas A02); the CIFAR-10 file above is Atlas A01 and is no longer loaded.
+
+| file | source | bytes | sha256 | file check | date |
+|---|---|---:|---|---|---|
+| `A02/cifar100/model_best.pth.tar` | <https://huggingface.co/Fancysean/STEP/resolve/main/ckpt/cls/Spikformer/cifar100/model_best.pth.tar> | 112,620,152 | `e4449e1a7a3271a52e2be4d3dbb90a3baac13e1cf6394c2e9ed7f0ef68d66dbf` | Zip archive data; not HTML | 2026-11-09 |
+
+```bash
+mkdir -p ckpts/A02/cifar100 && curl -L -o ckpts/A02/cifar100/model_best.pth.tar \
+  https://huggingface.co/Fancysean/STEP/resolve/main/ckpt/cls/Spikformer/cifar100/model_best.pth.tar
+```
+
 ## A04 — STEP Spike-driven Transformer (SDT) 2-512
 
 | file | source | bytes | sha256 | file check | date |
 |---|---|---:|---|---|---|
 | `A04/model_best.pth.tar` | <https://huggingface.co/Fancysean/STEP/resolve/main/ckpt/cls/SDT/cifar100/model_best.pth.tar> | 123,547,800 | `13a5e878b0d21590d7091efdb0d3d8b3759ce5134cc3ce83b7117959bf5b662d` | Zip archive data; not HTML | 2026-11-06 |
+
+The loader now reads the CIFAR-100 checkpoint below (Atlas A04); the CIFAR-10 file above is Atlas A03 and is no longer loaded.
+
+| file | source | bytes | sha256 | file check | date |
+|---|---|---:|---|---|---|
+| `A04/cifar100/model_best.pth.tar` | <https://huggingface.co/Fancysean/STEP/resolve/main/ckpt/cls/SDT/cifar100/model_best.pth.tar> | 123,547,800 | `13a5e878b0d21590d7091efdb0d3d8b3759ce5134cc3ce83b7117959bf5b662d` | Zip archive data; not HTML | 2026-11-09 |
+
+```bash
+mkdir -p ckpts/A04/cifar100 && curl -L -o ckpts/A04/cifar100/model_best.pth.tar \
+  https://huggingface.co/Fancysean/STEP/resolve/main/ckpt/cls/SDT/cifar100/model_best.pth.tar
+```
 
 ## A07 — SpikingLM
 
