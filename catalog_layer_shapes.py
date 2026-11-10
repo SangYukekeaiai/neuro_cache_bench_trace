@@ -135,7 +135,12 @@ def main() -> int:
     primary = [e for e in entries if e[0] != "synthetic"]
     others = [e for e in entries if e not in primary]
     sample_counts = ', '.join(str(n) for n in sorted({e[2]['n_samples'] for e in primary}))
-    seeds = ', '.join(str(n) for n in sorted({e[2]['subset']['seed'] for e in primary}))
+    seed_values = {e[2]['subset'].get('seed') for e in primary}
+    seeds = ', '.join(
+        str(seed) for seed in sorted(
+            seed_values, key=lambda seed: (seed is None, seed if seed is not None else 0)
+        )
+    )
     root_text = ', '.join(f'`{ROOT / r}`' for r in roots)
     regen = "conda run -n base .venv/bin/python -I catalog_layer_shapes.py"
     if args.metadata_only:

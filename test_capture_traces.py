@@ -1,15 +1,24 @@
 import copy
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import torch
 from torch import nn
 
-from capture_traces import _capture, _capture_chunked, _capture_workload, _stack_layer, _stack_samples
+from capture_traces import (
+    _capture,
+    _capture_chunked,
+    _capture_workload,
+    _parse_args,
+    _stack_layer,
+    _stack_samples,
+)
 
 
 class MixedBinarityCaptureTest(unittest.TestCase):
@@ -88,6 +97,76 @@ class MixedBinarityCaptureTest(unittest.TestCase):
 
 
 class ChunkedCaptureTest(unittest.TestCase):
+    def test_sample_start_selects_contiguous_range_without_rng(self) -> None:
+        dataset = [torch.tensor([float(index % 2), float((index + 1) % 2)]) for index in range(6)]
+        with tempfile.TemporaryDirectory() as temp:
+            args = SimpleNamespace(
+                n=3,
+                seed=None,
+                sample_start=2,
+                chunk=None,
+                allow_unfired=False,
+                out=Path(temp),
+                device="cpu",
+                benchmark="synthetic",
+            )
+            with patch("capture_traces.np.random.default_rng", side_effect=AssertionError):
+                output = _capture_workload(
+                    args,
+                    torch.device("cpu"),
+                    nn.Sequential(nn.Linear(2, 1)),
+                    dataset,
+                    1,
+                    "toy",
+                    "toy/test",
+                )
+
+            meta = json.loads((output / "meta.json").read_text())
+            self.assertEqual(meta["subset"]["sample_start"], 2)
+            self.assertEqual(meta["subset"]["sample_indices"], [2, 3, 4])
+            self.assertEqual(meta["subset"]["selected_by"], "contiguous dataset-order range [2, 5)")
+
+    def test_sample_start_rejects_range_beyond_dataset(self) -> None:
+        args = SimpleNamespace(
+            n=3,
+            seed=None,
+            sample_start=2,
+            chunk=None,
+            allow_unfired=False,
+            out=Path("unused"),
+            device="cpu",
+            benchmark="synthetic",
+        )
+        with self.assertRaisesRegex(ValueError, "exceeds dataset size 4"):
+            _capture_workload(
+                args,
+                torch.device("cpu"),
+                nn.Sequential(nn.Linear(2, 1)),
+                [torch.tensor([0.0, 1.0])] * 4,
+                1,
+                "toy",
+                "toy/test",
+            )
+
+    def test_sample_start_makes_seed_optional(self) -> None:
+        argv = [
+            "capture_traces.py",
+            "--benchmark",
+            "synthetic",
+            "--n",
+            "3",
+            "--sample-start",
+            "2",
+            "--out",
+            "unused",
+            "--device",
+            "cpu",
+        ]
+        with patch.object(sys, "argv", argv):
+            args = _parse_args()
+        self.assertIsNone(args.seed)
+        self.assertEqual(args.sample_start, 2)
+
     def test_first_chunk_resets_state_from_an_earlier_forward(self) -> None:
         from spikingjelly.activation_based import neuron
 

@@ -341,7 +341,12 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--benchmark", required=True, choices=sorted(REGISTRY))
     parser.add_argument("--n", type=int, required=True, help="number of unique samples to capture")
-    parser.add_argument("--seed", type=int, required=True, help="numpy subset-selection seed")
+    parser.add_argument("--seed", type=int, help="numpy subset-selection seed")
+    parser.add_argument(
+        "--sample-start",
+        type=int,
+        help="select the contiguous dataset-order range starting at this index",
+    )
     parser.add_argument("--out", type=Path, required=True, help="parent output directory")
     parser.add_argument("--device", choices=("cuda", "cpu"), required=True)
     parser.add_argument("--chunk", type=int, help="samples per forward pass; default captures all samples at once")
@@ -353,6 +358,10 @@ def _parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.n <= 0:
         parser.error("--n must be positive")
+    if args.seed is None and args.sample_start is None:
+        parser.error("--seed is required unless --sample-start is provided")
+    if args.sample_start is not None and args.sample_start < 0:
+        parser.error("--sample-start must be non-negative")
     if args.chunk is not None and args.chunk <= 0:
         parser.error("--chunk must be positive")
     return args
@@ -376,11 +385,29 @@ def _capture_workload(
     dataset_name: str,
 ) -> Path:
     selected_dataset = dataset.choose(args.n) if hasattr(dataset, "choose") else dataset
-    if args.n > len(selected_dataset):
-        raise ValueError(f"--n={args.n} exceeds dataset size {len(selected_dataset)}")
+    sample_start = getattr(args, "sample_start", None)
+    seed = getattr(args, "seed", None)
+    if sample_start is not None:
+        if sample_start < 0:
+            raise ValueError("--sample-start must be non-negative")
+        if sample_start + args.n > len(selected_dataset):
+            raise ValueError(
+                f"--sample-start={sample_start} with --n={args.n} exceeds dataset size "
+                f"{len(selected_dataset)}"
+            )
+        sample_indices = list(range(sample_start, sample_start + args.n))
+        selected_by = (
+            f"contiguous dataset-order range [{sample_start}, {sample_start + args.n})"
+        )
+    else:
+        if args.n > len(selected_dataset):
+            raise ValueError(f"--n={args.n} exceeds dataset size {len(selected_dataset)}")
+        if seed is None:
+            raise ValueError("--seed is required unless --sample-start is provided")
+        rng = np.random.default_rng(seed)
+        sample_indices = sorted(int(index) for index in rng.choice(len(selected_dataset), args.n, replace=False))
+        selected_by = "numpy.random.default_rng(seed).choice(len(selected_dataset), n, replace=False), sorted"
 
-    rng = np.random.default_rng(args.seed)
-    sample_indices = sorted(int(index) for index in rng.choice(len(selected_dataset), args.n, replace=False))
     model = model.to(device=device).eval()
 
     if args.chunk is None:
@@ -431,13 +458,15 @@ def _capture_workload(
         "subset": {
             "of": f"{arch_name}_T{timestep_count}_full",
             "n": len(sample_indices),
-            "seed": args.seed,
+            "seed": seed,
             "sample_indices": sample_indices,
-            "selected_by": "numpy.random.default_rng(seed).choice(len(selected_dataset), n, replace=False), sorted",
+            "selected_by": selected_by,
             "made_by": "capture_traces.py",
         },
         "timestep": timestep_count,
     }
+    if sample_start is not None:
+        meta["subset"]["sample_start"] = sample_start
     if args.chunk is not None:
         meta["chunk_size"] = args.chunk
         meta["numerical_note"] = CHUNK_NUMERICAL_NOTE
