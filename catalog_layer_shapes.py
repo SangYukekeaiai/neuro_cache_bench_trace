@@ -27,7 +27,9 @@ OUT_MD = ROOT / "LAYER_SHAPES.md"
 # C01 settings are checked statically in the VGG8 constructors.
 CONV_SETTINGS = {
     "spikformer_4_384": {3: (1, 1, 1)},
+    "spikformer_4_384_cifar100": {3: (1, 1, 1)},
     "sdt_2_512": {1: (0, 1, 1), 3: (1, 1, 1)},
+    "sdt_2_512_cifar100": {1: (0, 1, 1), 3: (1, 1, 1)},
     "vgg16_cifar10_loas": {3: (1, 1, 1)},
     "loas_resnet19": {1: (0, 1, 1), 3: (1, 1, 1)},
     "loas_vgg16": {3: (1, 1, 1)},
